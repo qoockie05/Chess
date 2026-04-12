@@ -23,7 +23,7 @@ log_interval = 10
 random_seed = 1
 torch.backends.cudnn.enabled = False
 torch.manual_seed(random_seed)
-DIRECTORY=r"C:\Users\Ania\PycharmProjects\Moje_prywatne\Apka_do_triggerowania_obrazkow\pythonProject1\pionki\pioneks"
+DIRECTORY=r"C:\Users\Ania\PycharmProjects\Moje_prywatne\Apka_do_triggerowania_obrazkow\pythonProject1\pionki\pioneks_ag"
 DIRECTORY_TEST=r"C:\Users\Ania\PycharmProjects\Moje_prywatne\Apka_do_triggerowania_obrazkow\pythonProject1\pionki\test"
 IMAGE_SIZE=64
 
@@ -47,12 +47,12 @@ test_loader=torch.utils.data.DataLoader(test_dataset, batch_size=batch_size_test
 
 
 print(f'Klasy {train_dataset.classes}')
-print(f'Train{len(train_dataset)}')
+print(f'Train {len(train_dataset)}')
 print("TRAIN:", train_dataset.class_to_idx)
 print("TEST :", test_dataset.class_to_idx)
 
 class Net(nn.Module):
-    def __init__(self, num_folders=14):
+    def __init__(self, num_folders=12):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 10, kernel_size=5)
         self.drop = nn.Dropout2d()
@@ -66,7 +66,7 @@ class Net(nn.Module):
         x = self.fc1(x)
         x = F.log_softmax(x, dim=1)
         return x
-network=Net()
+network = Net().to(device)
 optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
 
 train_losses = []
@@ -78,6 +78,7 @@ os.makedirs("results", exist_ok=True)
 def train(epoch):
     network.train()
     for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = network(data)
         loss = F.nll_loss(output, target)
@@ -101,6 +102,7 @@ def evaluate():
 
     with torch.no_grad():
         for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
             output = network(data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()
             pred = output.data.max(1, keepdim=True)[1]
@@ -126,7 +128,7 @@ disp = ConfusionMatrixDisplay(
     )
 
 plt.figure(figsize=(10, 10))
-disp.plot(cmap="Blues", xticks_rotation=45)
+disp.plot(cmap="Blues", xticks_rotation=90)
 plt.title("Confusion Matrix")
 plt.tight_layout()
 plt.show()
