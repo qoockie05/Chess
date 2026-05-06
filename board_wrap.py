@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import shutil
+from model_predict2 import annotate_board
 
 OUTPUT_DIR = "squares2"
 WINDOW_CAMERA = "Camera"
@@ -113,7 +114,6 @@ def save_64_squares(board_img):
     cell_w = w // 8
 
     grid_preview = board_img.copy()
-
     for row in range(8):
         for col in range(8):
             y1 = row * cell_h
@@ -122,7 +122,7 @@ def save_64_squares(board_img):
             x2 = (col + 1) * cell_w if col < 7 else w
 
             square = board_img[y1:y2, x1:x2]
-            cv2.imwrite(os.path.join(OUTPUT_DIR, f"square_{row}_{col}.jpg"), square)
+            cv2.imwrite(os.path.join(OUTPUT_DIR, f"square_{row}_{chr(ord('a')+col)}.jpg"), square)
 
             cv2.rectangle(grid_preview, (x1, y1), (x2, y2), (0, 255, 0), 1)
             cv2.putText(
@@ -181,15 +181,22 @@ def process_capture(frame):
     warped = four_point_transform_to_square(frame, calibration_points)
     grid_preview = save_64_squares(warped)
 
+    predicted_img, predicted_board = annotate_board(warped)
+
     capture_counter += 1
     cv2.imwrite(f"captured_frame_{capture_counter}.jpg", frame)
     cv2.imwrite(f"warped_board_{capture_counter}.jpg", warped)
     cv2.imwrite(f"board_grid_preview_{capture_counter}.jpg", grid_preview)
+    cv2.imwrite(f"board_prediction_{capture_counter}.jpg", predicted_img)
 
     cv2.imshow(WINDOW_WARPED, warped)
     cv2.imshow(WINDOW_GRID, grid_preview)
+    cv2.imshow("Predictions", predicted_img)
 
     print(f"Zapisano cropy do folderu {OUTPUT_DIR}.")
+    print("Rozpoznana plansza:")
+    for row in predicted_board:
+        print(" ".join(row))
 
 
 def draw_camera_overlay(frame):
