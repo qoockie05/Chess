@@ -6,13 +6,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
-
-from train import DIRECTORY, DIRECTORY_TEST
+from torchvision.utils import save_image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)
 
-n_epochs = 20
+n_epochs = 15
 batch_size_train = 32
 batch_size_test = 1000
 learning_rate = 0.01
@@ -22,20 +21,20 @@ log_interval = 10
 random_seed = 1
 torch.backends.cudnn.enabled = False
 torch.manual_seed(random_seed)
-DIRECTORY=r"path"
-DIRECTORY_TEST=r"path_test"
+DIRECTORY=r"C:\Users\Ania\PycharmProjects\Moje_prywatne\Apka_do_triggerowania_obrazkow\pythonProject1\pionki\dataset"
+DIRECTORY_TEST=r"C:\Users\Ania\PycharmProjects\Moje_prywatne\Apka_do_triggerowania_obrazkow\pythonProject1\pionki\test"
 IMAGE_SIZE=64
 
 train_transform=transforms.Compose([
     transforms.Resize((IMAGE_SIZE,IMAGE_SIZE)),
     transforms.ColorJitter(brightness=0.1,contrast=0.1),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 test_transform=transforms.Compose([
     transforms.Resize((IMAGE_SIZE,IMAGE_SIZE)),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
 
@@ -49,30 +48,35 @@ print(f'Klasy {train_dataset.classes}')
 print(f'Train {len(train_dataset)}')
 print("TRAIN:", train_dataset.class_to_idx)
 print("TEST :", test_dataset.class_to_idx)
-
+print("Liczba klas w train:", len(train_dataset.classes))
+print("Liczba klas w test:", len(test_dataset.classes))
+if train_dataset.classes != test_dataset.classes:
+    print("UWAGA: Różne klasy w zbiorach!")
 class Net(nn.Module):
-    def __init__(self, num_folders=12):
+    def __init__(self, num_folders=14):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=5)
-        self.drop = nn.Dropout2d()
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(8 * 30 * 30, num_folders)
+        self.conv1 = nn.Conv2d(3, 8, kernel_size=5) #3 kanaly wejsciowe, 8 filtrow, 5 rozmiar jedenego filtra
+        self.drop = nn.Dropout2d() #nie uczy sie na pamiec
+        self.pool = nn.MaxPool2d(2, 2) #wybieranie najwazniejszego kwadratu; ssplaszczanie obrazu;
+        self.fc1 = nn.Linear(8 * 30 * 30, num_folders) #polaczona warstwa
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.drop(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
+        x = torch.flatten(x, 1) #splaszzczenie tensora do wektora
+        x = self.fc1(x) #warstwa liniowa
         x = F.log_softmax(x, dim=1)
         return x
 
 network = Net().to(device)
-optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
+optimizer = optim.AdamW(network.parameters(), lr=0.001, weight_decay=1e-4)
+#optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
 
 train_losses = []
 train_counter = []
 test_losses = []
 test_counter = [i*len(train_dataset) for i in range(n_epochs + 1)]
+
 print(test_counter)
 os.makedirs("results", exist_ok=True)
 def train(epoch):
@@ -92,13 +96,15 @@ def train(epoch):
             train_counter.append((batch_idx*batch_size_train) + ((epoch-1)*len(train_dataset)))
             torch.save(network.state_dict(), 'model/model.pth')
             torch.save(optimizer.state_dict(), 'model/optimizer.pth')
-def evaluate(loader, name="Eval"):
+def evaluate(loader, name="Eval", epoch = 0):
     network.eval()
     total_loss = 0
     correct = 0
 
     all_targets = []
     all_preds = []
+
+    counter = 0
 
     with torch.no_grad():
         for data, target in loader:
@@ -108,6 +114,13 @@ def evaluate(loader, name="Eval"):
             total_loss += F.nll_loss(output, target, reduction='sum').item()
             pred = output.argmax(dim=1)
             correct += (pred == target).sum().item()
+
+            if epoch == 20:
+                idx = (pred != target).nonzero(as_tuple=True)[0].tolist()
+
+                for id in idx:
+                    save_image(data[id], f'results/{counter}_rozpoznano: {pred[id].item()}_prawidłowy: {target[id].item()}.png')
+                    counter += 1
 
             all_targets.extend(target.cpu().numpy())
             all_preds.extend(pred.cpu().numpy())
@@ -128,7 +141,7 @@ for epoch in range(1, n_epochs + 1):
     train(epoch)
 
     train_loss, train_acc, _, _ = evaluate(train_loader, "Train set")
-    test_loss, test_acc, all_targets, all_preds = evaluate(test_loader, "Test set")
+    test_loss, test_acc, all_targets, all_preds = evaluate(test_loader, "Test set", epoch)
 
     train_epoch_losses.append(train_loss)
     test_epoch_losses.append(test_loss)

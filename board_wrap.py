@@ -2,14 +2,17 @@ import cv2
 import numpy as np
 import os
 import shutil
-from model_predict2 import annotate_board
+from _datetime import datetime
+from charset_normalizer import detect
+
+from model_predict2 import annotate_board, CLASS_TO_SYMBOL
 
 OUTPUT_DIR = "squares2"
 WINDOW_CAMERA = "Camera"
 WINDOW_CALIB = "Calibration"
 WINDOW_WARPED = "Warped board"
 WINDOW_GRID = "64 squares preview"
-
+prev_board = None
 clicked_points = []
 frozen_frame = None
 display_frame = None
@@ -113,6 +116,9 @@ def save_64_squares(board_img):
     cell_h = h // 8
     cell_w = w // 8
 
+    pad_x = int(cell_w * 0.05)
+    pad_y = int(cell_h * 0.05)
+
     grid_preview = board_img.copy()
     for row in range(8):
         for col in range(8):
@@ -121,13 +127,18 @@ def save_64_squares(board_img):
             x1 = col * cell_w
             x2 = (col + 1) * cell_w if col < 7 else w
 
-            square = board_img[y1:y2, x1:x2]
-            cv2.imwrite(os.path.join(OUTPUT_DIR, f"square_{row}_{chr(ord('a')+col)}.jpg"), square)
+            x1p = max(0, x1 - pad_x)
+            y1p = max(0, y1 - pad_y)
+            x2p = min(w, x2 + pad_x)
+            y2p = min(h, y2 + pad_y)
+
+            square = board_img[y1p:y2p, x1p:x2p]
+            cv2.imwrite(os.path.join(OUTPUT_DIR, f"square_{row+1}{chr(ord('a')+col)}.jpg"), square)
 
             cv2.rectangle(grid_preview, (x1, y1), (x2, y2), (0, 255, 0), 1)
             cv2.putText(
                 grid_preview,
-                f"{row},{col}",
+                f"{row+1}{chr(ord('a')+col)}",
                 (x1 + 5, y1 + 18),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.45,
@@ -136,7 +147,6 @@ def save_64_squares(board_img):
             )
 
     return grid_preview
-
 
 def run_calibration(frame):
     global clicked_points, frozen_frame, display_frame, calibration_points
@@ -172,7 +182,7 @@ def run_calibration(frame):
 
 
 def process_capture(frame):
-    global calibration_points, capture_counter
+    global calibration_points, capture_counter, prev_board
 
     if calibration_points is None:
         print("Najpierw wykonaj kalibracje klawiszem U.")
@@ -181,8 +191,15 @@ def process_capture(frame):
     warped = four_point_transform_to_square(frame, calibration_points)
     grid_preview = save_64_squares(warped)
 
-    predicted_img, predicted_board = annotate_board(warped)
+    predicted_img, predicted_board = annotate_board(warped,margin=0.10)
+    if prev_board is not None:
+        ok, msg = is_pawn_move_valid(prev_board, predicted_board)
+        print(ok, msg)
+    else:
+        detect_on_the_beginning(predicted_board,warped)
+        print("Brak poprzedniej planszy do porownania.")
 
+    prev_board = predicted_board
     capture_counter += 1
     cv2.imwrite(f"captured_frame_{capture_counter}.jpg", frame)
     cv2.imwrite(f"warped_board_{capture_counter}.jpg", warped)
@@ -249,6 +266,123 @@ def draw_camera_overlay(frame):
 
     return overlay
 
+#detekcja pionow
+def save_wrong_square(warped, r, c, key, margin=0.05, prefix="wrong"):
+    h, w = warped.shape[:2]
+    cell_h = h // 8
+    cell_w = w // 8
+
+    pad_x = int(cell_w * margin)
+    pad_y = int(cell_h * margin)
+
+    y1 = r * cell_h
+    y2 = (r + 1) * cell_h if r < 7 else h
+    x1 = c * cell_w
+    x2 = (c + 1) * cell_w if c < 7 else w
+
+    x1p = max(0, x1 - pad_x)
+    y1p = max(0, y1 - pad_y)
+    x2p = min(w, x2 + pad_x)
+    y2p = min(h, y2 + pad_y)
+
+    crop = warped[y1p:y2p, x1p:x2p]
+    filename = f"{prefix}_{datetime.now().minute}_{datetime.now().second}_{r}_{c}.jpg"
+    cv2.imwrite(f"C:\\Users\\Ania\Desktop\\nowy_dataset\\{key}\\{filename}", crop)
+    print(f"zapisano w C:\\Users\\Ania\Desktop\\nowy_dataset\\{key}\\{filename}")
+    return filename
+def detect_on_the_beginning(board,warped):
+    tab = []
+    start_board = [
+        ["bW", "bS", "bG", "bQ", "bK", "bG", "bS", "bW"],
+        ["bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP"],
+        [".", ".", ".", ".", ".", ".", ".", "."],
+        [".", ".", ".", ".", ".", ".", ".", "."],
+        [".", ".", ".", ".", ".", ".", ".", "."],
+        [".", ".", ".", ".", ".", ".", ".", "."],
+        ["wP", "wP", "wP", "wP", "wP", "wP", "wP", "wP"],
+        ["wW", "wS", "wG", "wQ", "wK", "wG", "wS", "wW"]
+    ]
+    for r in range(8):
+        for c in range(8):
+            tab.append((r,c,board[r][c]))
+    for i in range(64):
+        r, c, square = tab[i]
+        if square!=start_board[r][c]:
+            print(f'{square} nie jest rowne {start_board[r][c]}')
+            try:
+                piece_name= next((key for key, value in CLASS_TO_SYMBOL.items() if value == start_board[r][c]), None)
+                save_wrong_square(warped, r, c,piece_name, margin=0.05)
+            except Exception as e:
+                print("Nie udalo sie zapisac w detect_on_the_beginning")
+
+
+
+
+
+def find_differences(prev_board, new_board):
+    removed = []
+    added = []
+
+    for r in range(8):
+        for c in range(8):
+            if prev_board[r][c] != new_board[r][c]:
+                if prev_board[r][c] != "." and new_board[r][c] == ".":
+                    removed.append((r, c, prev_board[r][c]))
+                elif prev_board[r][c] == "." and new_board[r][c] != ".":
+                    added.append((r, c, new_board[r][c]))
+                else:
+                    removed.append((r, c, prev_board[r][c])) #nwm czy to tez
+                    added.append((r, c, new_board[r][c]))
+
+    return removed, added
+
+def king_turn(r1, c1, r2, c2):
+    resultR=abs(r1-r2)
+    resultC=abs(c1-c2)
+    if(resultR<=1 and resultC<=1 and not (resultR==0 and resultC==0)):
+        return True
+
+def queen_turn(r1, c1, r2, c2):
+    resultR=abs(r1-r2)
+    resultC=abs(c1-c2)
+
+
+def knight_turn(r1, c1, r2, c2):
+    resultR=abs(r1-r2)
+    resultC=abs(c1-c2)
+
+
+def bishop_turn(r1, c1, r2, c2):
+    resultR=abs(r1-r2)
+    resultC=abs(c1-c2)
+
+
+def pawn_turn(r1, c1, r2, c2):
+    resultR=abs(r1-r2)
+    resultC=abs(c1-c2)
+    if(resultR==1 and resultC==0):
+        return True
+    return False
+
+def rook_turn(r1, c1, r2, c2):
+    if(r1==r2 or c1==c2):
+        return True
+    else:
+        return False
+
+def is_pawn_move_valid(prev_board, new_board):
+    removed, added = find_differences(prev_board, new_board)
+
+    if len(removed) != 1 or len(added) != 1:
+        print("Nie jest to prosty ruch jednego pionka.")
+
+    r1, c1, oldPiece = removed[0]
+    r2, c2, newPiece = added[0]
+    if(oldPiece=='bK' or oldPiece=='wK'):
+        king_turn(r1, c1, r2, c2)
+
+
+    return False, "Nieznany blad."
 
 def main():
     cam = cv2.VideoCapture(0)
@@ -279,7 +413,7 @@ def main():
         if key == 27:
             break
 
-        elif key == ord("u"):
+        elif key == (ord("u") or ord("U")):
             run_calibration(frame)
 
         elif key == 32:
@@ -290,4 +424,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
