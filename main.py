@@ -8,6 +8,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)
 
@@ -53,23 +54,59 @@ print("Liczba klas w test:", len(test_dataset.classes))
 if train_dataset.classes != test_dataset.classes:
     print("UWAGA: Różne klasy w zbiorach!")
 class Net(nn.Module):
-    def __init__(self, num_folders=14):
+    def __init__(self, num_classes=14):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=5) #3 kanaly wejsciowe, 8 filtrow, 5 rozmiar jedenego filtra
-        self.drop = nn.Dropout2d() #nie uczy sie na pamiec
-        self.pool = nn.MaxPool2d(2, 2) #wybieranie najwazniejszego kwadratu; ssplaszczanie obrazu;
-        self.fc1 = nn.Linear(8 * 30 * 30, num_folders) #polaczona warstwa
+
+        self.features = nn.Sequential(
+            # 64x64 -> 64x64
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+
+            # 64x64 -> 32x32
+            nn.MaxPool2d(2),
+
+            # 32x32 -> 32x32
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            # 32x32 -> 16x16
+            nn.MaxPool2d(2),
+
+            # 16x16 -> 16x16
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+            # 16x16 -> 8x8
+            nn.MaxPool2d(2),
+
+            # 8x8 -> 8x8
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+
+            # 8x8 -> 4x4
+            nn.MaxPool2d(2)
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(256 * 4 * 4, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(256, num_classes)
+        )
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.drop(x)
-        x = torch.flatten(x, 1) #splaszzczenie tensora do wektora
-        x = self.fc1(x) #warstwa liniowa
-        x = F.log_softmax(x, dim=1)
+        x = self.features(x)
+        x = self.classifier(x)
         return x
 
 network = Net().to(device)
 optimizer = optim.AdamW(network.parameters(), lr=0.001, weight_decay=1e-4)
+criterion = nn.CrossEntropyLoss()
 #optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
 
 train_losses = []
@@ -85,7 +122,7 @@ def train(epoch):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = network(data).to(device)
-        loss = F.nll_loss(output, target)
+        loss = criterion(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % log_interval == 0:
@@ -94,8 +131,8 @@ def train(epoch):
                        100. * batch_idx / len(train_loader), loss.item()))
             train_losses.append(loss.item())
             train_counter.append((batch_idx*batch_size_train) + ((epoch-1)*len(train_dataset)))
-            torch.save(network.state_dict(), 'model/model.pth')
-            torch.save(optimizer.state_dict(), 'model/optimizer.pth')
+            torch.save(network.state_dict(), 'bettermodel/model.pth')
+            torch.save(optimizer.state_dict(), 'bettermodel/optimizer.pth')
 def evaluate(loader, name="Eval", epoch = 0):
     network.eval()
     total_loss = 0
@@ -111,7 +148,7 @@ def evaluate(loader, name="Eval", epoch = 0):
             data, target = data.to(device), target.to(device)
             output = network(data)
 
-            total_loss += F.nll_loss(output, target, reduction='sum').item()
+            total_loss += criterion(output, target).item() * data.size(0)
             pred = output.argmax(dim=1)
             correct += (pred == target).sum().item()
 
