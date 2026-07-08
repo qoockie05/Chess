@@ -5,10 +5,8 @@ from board_logic import (
 )
 from board_display import write_squares, predict_move, next_board
 from dataset_save import save_square_to_dataset
-from windows import WINDOW_GRID, WINDOW_WARPED
 from minimax_engine import get_best_move
-
-
+from windows import *
 boardd = [
     ["bW", "bS", "bG", "bQ", "bK", "bG", "bS", "bW"],
     ["bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP"],
@@ -21,7 +19,7 @@ boardd = [
 ]
 current_turn = 'w'
 bot_color = 'b'
-depth = 6
+depth = 5
 prev_board = None
 predicted_move = None
 
@@ -34,11 +32,68 @@ def collect_misclassified_squares(warped, logical_board, predicted_board, moved_
             save_square_to_dataset(warped, r, c, expected)
 
 
+def find_best_move_from_predictions(prev_board, predicted_board):
+    candidates = []
+
+    for r1 in range(8):
+        for c1 in range(8):
+            old_piece = prev_board[r1][c1]
+
+            if old_piece == ".":
+                continue
+
+            predicted_from = predicted_board[r1][c1]
+
+
+            if predicted_from == old_piece:
+                continue
+
+            for r2 in range(8):
+                for c2 in range(8):
+                    if r1 == r2 and c1 == c2:
+                        continue
+
+                    target_before = prev_board[r2][c2]
+                    predicted_to = predicted_board[r2][c2]
+
+                    capture = prev_board[r2][c2] != "." and prev_board[r2][c2][0] != old_piece[0]
+
+                    candidates_for_piece = possible_pieces(prev_board, r1, c1, r2, c2, old_piece, capture)
+                    if old_piece[1] not in candidates_for_piece:
+                        continue
+
+                    score = 0
+
+                    if predicted_to == old_piece:
+                        score += 3
+                    elif predicted_to != "." and predicted_to[0] == old_piece[0]:
+                        score += 2
+
+                    if predicted_from == ".":
+                        score += 3
+                    elif predicted_from != "." and predicted_from[0] != old_piece[0]:
+                        score += 1
+
+
+                    if capture:
+                        score += 1
+
+                    if score > 0:
+                        candidates.append((score, r1, c1, r2, c2, old_piece, predicted_to, capture))
+
+    if not candidates:
+        return None
+
+    candidates.sort(reverse=True, key=lambda x: x[0])
+    return candidates[0]
+
+
 def apply_bot_move(best, prev_board, predicted_board, warped):
     r1, c1, r2, c2 = best
     predicted_move = predict_move(r1, c1, r2, c2, warped)
 
     moving_piece = prev_board[r1][c1]
+    captured_piece = prev_board[r2][c2]
     if predicted_board[r2][c2] != moving_piece:
         save_square_to_dataset(warped, r1, c1, moving_piece)
 
@@ -48,8 +103,6 @@ def apply_bot_move(best, prev_board, predicted_board, warped):
     from minimax_engine import is_in_check
     if is_in_check(prev_board, 'w'):
         print("SZACH – białe są w szachu!")
-    if is_in_check(prev_board, 'b'):
-        print("SZACH – czarne są w szachu!")
 
     from_ = f"{chr(ord('a') + c1)}{8 - r1}"
     to_ = f"{chr(ord('a') + c2)}{8 - r2}"
@@ -59,9 +112,6 @@ def apply_bot_move(best, prev_board, predicted_board, warped):
     if not wK:
         print("KONIEC GRY – wygrały czarne!")
         cv2.imshow("Best move by AI", predicted_move)
-        return prev_board, predicted_move, True
-    if not bK:
-        print("KONIEC GRY – wygrały białe!")
         return prev_board, predicted_move, True
 
     return prev_board, predicted_move, False
@@ -123,12 +173,12 @@ def apply_move_and_collect(prev_board, warped, predicted_board):
             print(f"Ruch: {piece} {chr(ord('a')+c1)}{8-r1} -> {chr(ord('a')+c2)}{8-r2}, capture={capture}")
             updated_board = [row[:] for row in prev_board]
             updated_board[r1][c1] = "."
-            updated_board[r2][c2] = piece
+            updated_board[r2][c2] = piece  # nadpisuje zbitą figurę
             collect_misclassified_squares(warped, updated_board, predicted_board, [(r1, c1), (r2, c2)])
 
             annotated_img, _ = write_squares(updated_board, warped)
             if abs(pieces_count(prev_board) - pieces_count(updated_board)) > 1:
-                return prev_board, annotated_img, "Błąd ruchu"
+                return prev_board, annotated_img, "BŁĄD_RUCHU"
             for c in range(8):
                 if updated_board[0][c] == 'wP':
                     updated_board[0][c] = ask_promotion('w')
@@ -166,7 +216,7 @@ def process_capture(frame, calibration_points):
 
         updated_board, logical_img, error_msg = apply_move_and_collect(prev_board, warped, predicted_board)
 
-        if error_msg == "Brak ruchu" or error_msg == "Błąd ruchu":
+        if error_msg == "BRAK_RUCHU" or error_msg == "BŁĄD_RUCHU":
             print(f"Nie wykryto poprawnego ruchu ({error_msg}). Spróbuj ponownie.")
             logical_img, _ = write_squares(prev_board, warped)
             predicted_move = warped.copy()
@@ -196,7 +246,11 @@ def process_capture(frame, calibration_points):
 
 
             print("Tura czarnych – wyliczam ruch bota...")
-
+            #white_score = sum(PIECE_VALUES.get(prev_board[r][c][1], 0) for r in range(8) for c in range(8) if
+            #                   prev_board[r][c] != '.' and prev_board[r][c][0] == 'w')
+            # black_score = sum(PIECE_VALUES.get(prev_board[r][c][1], 0) for r in range(8) for c in range(8) if
+            #                   prev_board[r][c] != '.' and prev_board[r][c][0] == 'b')
+            # print(f"Białe: {white_score}, Czarne: {black_score}, Różnica: {white_score - black_score}")
             best = get_best_move(prev_board, color=bot_color, depth=depth)
             if best is None:
                 current_depth = depth

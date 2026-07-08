@@ -1,0 +1,16 @@
+{
+  "bialy_goniec": 0,
+  "bialy_krol": 1,
+  "bialy_krolowa": 2,
+  "bialy_pionek": 3,
+  "bialy_pusto": 4,
+  "bialy_skoczek": 5,
+  "bialy_wieza": 6,
+  "czarny_goniec": 7,
+  "czarny_krol": 8,
+  "czarny_krolowa": 9,
+  "czarny_pionek": 10,
+  "czarny_pusto": 11,
+  "czarny_skoczek": 12,
+  "czarny_wieza": 13
+}
